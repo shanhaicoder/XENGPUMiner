@@ -1,4 +1,4 @@
 passlib
-requests
+requests[socks]
 tqdm
 argon2_cffi 

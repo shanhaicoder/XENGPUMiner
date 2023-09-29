@@ -11,6 +11,7 @@ parser = argparse.ArgumentParser(description="Process optional account and worke
 parser.add_argument('--account', type=str, help='The account value to use.')
 parser.add_argument('--worker', type=int, help='The worker id to use.')
 parser.add_argument('--gpu', type=str, help='Set to true to enable GPU mode, and to false to disable it.')
+parser.add_argument('--proxy', type=str, help='The proxy address.')
 
 # Parse the arguments
 args = parser.parse_args()
@@ -19,9 +20,16 @@ args = parser.parse_args()
 account = args.account
 worker_id = args.worker
 gpu_mode = args.gpu
+proxy = args.proxy  # "127.0.0.1:1080"
+
+proxies = {
+    "socks5h": proxy,
+    "http": "socks5h://%s" % proxy,
+    "https": "socks5h://%s" % proxy,
+} if proxy else {}
 
 # For example, to print the values
-print(f'Account: {account}, Worker ID: {worker_id}, GPU Mode: {gpu_mode}')
+print(f'Account: {account}, Worker ID: {worker_id}, GPU Mode: {gpu_mode}, Proxy: {proxy}')
 
 # Load the configuration file
 config = configparser.ConfigParser()
@@ -142,7 +150,7 @@ def update_memory_cost_periodically():
 def fetch_difficulty_from_server():
     global memory_cost
     try:
-        response = requests.get('http://xenminer.mooo.com/difficulty')
+        response = requests.get('http://xenminer.mooo.com/difficulty', proxies=proxies)
         response_data = response.json()
         return str(response_data['difficulty'])
     except Exception as e:
@@ -166,7 +174,7 @@ def submit_pow(account_address, key, hash_to_verify):
 
     try:
         # Attempt to download the last block record
-        response = requests.get(url, timeout=10)  # Adding a timeout of 10 seconds
+        response = requests.get(url, timeout=10, proxies=proxies)  # Adding a timeout of 10 seconds
     except requests.exceptions.RequestException as e:
         # Handle any exceptions that occur during the request
         print(f"An error occurred: {e}")
@@ -212,7 +220,7 @@ def submit_pow(account_address, key, hash_to_verify):
             }
 
             # Send POST request
-            pow_response = requests.post('http://xenminer.mooo.com:4446/send_pow', json=payload)
+            pow_response = requests.post('http://xenminer.mooo.com:4446/send_pow', json=payload, proxies=proxies)
 
             if pow_response.status_code == 200:
                 print(f"Proof of Work successful: {pow_response.json()}")
@@ -301,7 +309,7 @@ def mine_block(stored_targets, prev_hash):
 
     while retries <= max_retries:
         # Make the POST request
-        response = requests.post('http://xenminer.mooo.com/verify', json=payload)
+        response = requests.post('http://xenminer.mooo.com/verify', json=payload, proxies=proxies)
 
         # Print the HTTP status code
         print("HTTP Status Code:", response.status_code)
@@ -377,7 +385,7 @@ def submit_block(key):
 
         while retries <= max_retries:
             # Make the POST request
-            response = requests.post('http://xenminer.mooo.com/verify', json=payload)
+            response = requests.post('http://xenminer.mooo.com/verify', json=payload, proxies=proxies)
 
             # Print the HTTP status code
             print("HTTP Status Code:", response.status_code)
