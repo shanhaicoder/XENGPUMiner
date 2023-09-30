@@ -7,6 +7,9 @@ set(INCLUDE_INSTALL_DIR /usr/local/include)
 set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR})
+set(USE_CUDA 1)
+set(USE_OpenCL 1)
+
 if(MSVC)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /std:c++11")
 endif()
@@ -23,23 +26,30 @@ endif()
 set(CUDA_ARCH "sm_75" CACHE STRING "Specify the CUDA architecture.")
 
 set(CUDA_FOUND FALSE)
+set(OpenCL_FOUND FALSE)
 
-if(NOT NO_CUDA)
+if(USE_CUDA)
     find_package(CUDA)
 endif()
 
 if(CUDA_FOUND)
     message("INFO: Using CUDA version ${CUDA_VERSION}")
-    add_definitions(-DHAVE_CUDA=1)
+    add_definitions(-DHAVE_CUDA)
 else()
     message("FATAL_ERROR: Building without CUDA support")
-    add_definitions(-DHAVE_CUDA=0)
 endif()
 
-find_package(OpenCL REQUIRED)
-include_directories( ${OPENCL_INCLUDE_DIR})
-if(NOT OpenCL_FOUND)
-    message(FATAL_ERROR "OpenCL not found!")
+if(USE_OpenCL)
+    find_package(OpenCL)
+endif()
+
+if(OpenCL_FOUND)
+    include_directories( ${OPENCL_INCLUDE_DIR})
+    add_definitions(-DHAVE_OPENCL)
+endif()
+
+if((NOT OpenCL_FOUND) AND (NOT CUDA_FOUND))
+    message(FATAL_ERROR "Both CUDA and OpenCL not found!")
 endif()
 
 if(CUDA_FOUND)
@@ -88,39 +98,45 @@ target_include_directories(argon2-cuda INTERFACE
 )
 target_link_libraries(argon2-cuda argon2-gpu-common)
 
-add_library(argon2-opencl SHARED
-gpuMiner/lib/argon2-opencl/device.cpp
-gpuMiner/lib/argon2-opencl/globalcontext.cpp
-gpuMiner/lib/argon2-opencl/kernelloader.cpp
-gpuMiner/lib/argon2-opencl/programcontext.cpp
-gpuMiner/lib/argon2-opencl/processingunit.cpp
-gpuMiner/lib/argon2-opencl/kernelrunner.cpp
-)
-target_include_directories(argon2-opencl INTERFACE
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/gpuMiner/include>
-    $<INSTALL_INTERFACE:include>
-)
-target_include_directories(argon2-opencl PRIVATE
-gpuMiner/include/argon2-opencl
-gpuMiner/lib/argon2-opencl
-)
+if(OpenCL_FOUND)
+    add_library(argon2-opencl SHARED
+    gpuMiner/lib/argon2-opencl/device.cpp
+    gpuMiner/lib/argon2-opencl/globalcontext.cpp
+    gpuMiner/lib/argon2-opencl/kernelloader.cpp
+    gpuMiner/lib/argon2-opencl/programcontext.cpp
+    gpuMiner/lib/argon2-opencl/processingunit.cpp
+    gpuMiner/lib/argon2-opencl/kernelrunner.cpp
+    )
+    target_include_directories(argon2-opencl INTERFACE
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/gpuMiner/include>
+        $<INSTALL_INTERFACE:include>
+    )
+    target_include_directories(argon2-opencl PRIVATE
+    gpuMiner/include/argon2-opencl
+    gpuMiner/lib/argon2-opencl
+    )
 
-if (UNIX AND NOT APPLE)
-    target_link_libraries(argon2-opencl
-        argon2-gpu-common -lOpenCL
-    )
-endif()
-if (APPLE)
-    target_link_libraries(argon2-opencl
-        argon2-gpu-common "-framework OpenCL"
-    )
-endif()
-if (WIN32)
-    target_link_libraries(argon2-opencl
-        argon2-gpu-common OpenCL.lib
-    )
+    if (UNIX AND NOT APPLE)
+        target_link_libraries(argon2-opencl
+            argon2-gpu-common -lOpenCL
+        )
+    endif()
+    if (APPLE)
+        target_link_libraries(argon2-opencl
+            argon2-gpu-common "-framework OpenCL"
+        )
+    endif()
+    if (WIN32)
+        target_link_libraries(argon2-opencl
+            argon2-gpu-common OpenCL.lib
+        )
+    endif()
+else()
+    add_library(argon2-opencl SHARED
+    gpuMiner/lib/argon2-opencl/noopencl.cpp)
 endif()
 
+if(OpenCL_FOUND)
 add_executable(xengpuminer
 gpuMiner/src/argon2-gpu-bench/cpuexecutive.cpp
 gpuMiner/src/argon2-gpu-bench/cudaexecutive.cpp
@@ -128,10 +144,20 @@ gpuMiner/src/argon2-gpu-bench/openclexecutive.cpp
 gpuMiner/src/argon2-gpu-bench/benchmark.cpp
 gpuMiner/src/argon2-gpu-bench/main.cpp
 )
-target_include_directories(xengpuminer PRIVATE gpuMiner/src/argon2-gpu-bench)
-target_link_libraries(xengpuminer
-    argon2-cuda argon2-opencl argon2 -lOpenCL
+else()
+add_executable(xengpuminer
+gpuMiner/src/argon2-gpu-bench/cpuexecutive.cpp
+gpuMiner/src/argon2-gpu-bench/cudaexecutive.cpp
+gpuMiner/src/argon2-gpu-bench/benchmark.cpp
+gpuMiner/src/argon2-gpu-bench/main.cpp
 )
+endif()
+
+target_include_directories(xengpuminer PRIVATE
+$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/gpuMiner/include>
+gpuMiner/src/argon2-gpu-bench)
+
+target_link_libraries(xengpuminer argon2-cuda argon2-opencl argon2)
 
 install(
     TARGETS argon2-gpu-common argon2-opencl argon2-cuda

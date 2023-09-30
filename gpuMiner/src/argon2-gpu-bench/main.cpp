@@ -2,19 +2,23 @@
 #include "commandline/argumenthandlers.h"
 
 #include "benchmark.h"
-#include "openclexecutive.h"
-#include "cudaexecutive.h"
 #include "cpuexecutive.h"
 
 #include <iostream>
 #if HAVE_CUDA
 #include <cuda_runtime.h>
+#include "cudaexecutive.h"
 #endif
+
+#ifdef HAVE_OPENCL
+#include "openclexecutive.h"
 #ifdef __APPLE__
 #include <OpenCL/opencl.h>
 #else
 #include <CL/cl.h>
-#endif
+#endif  // __APPLE__
+#endif  // HAVE_OPENCL
+
 using namespace libcommandline;
 
 struct Arguments
@@ -146,11 +150,19 @@ int main(int, const char * const *argv)
                 false, args.precomputeRefs, 20000000,
                 args.outputMode, args.outputType);
         if (args.mode == "opencl") {
-            OpenCLExecutive exec(args.deviceIndex, args.listDevices);
-            exec.runBenchmark(director);
+            #ifdef HAVE_OPENCL
+                OpenCLExecutive exec(args.deviceIndex, args.listDevices);
+                exec.runBenchmark(director);
+            #else
+                std::cerr << "XenGPUMiner is not built with Opencl" << std::endl;
+            #endif
         } else if (args.mode == "cuda") {
-            CudaExecutive exec(args.deviceIndex, args.listDevices);
-            exec.runBenchmark(director);
+            #ifdef HAVE_CUDA
+                CudaExecutive exec(args.deviceIndex, args.listDevices);
+                exec.runBenchmark(director);
+            #else
+                std::cerr << "XenGPUMiner is not built with CUDA" << std::endl;
+            #endif
         }
         return 0;
     }
@@ -183,33 +195,38 @@ int main(int, const char * const *argv)
         int batchSize = args.batchSize;
         if(args.batchSize == 0){
             if (args.mode == "opencl") {
-                cl_platform_id platform;
-                clGetPlatformIDs(1, &platform, NULL);
+		        #ifdef HAVE_OPENCL
+                    cl_platform_id platform;
+                    clGetPlatformIDs(1, &platform, NULL);
 
-                cl_uint numDevices;
-                clGetDeviceIDs(platform, CL_DEVICE_TYPE_GPU, 0, NULL, &numDevices); // Assuming you are interested in GPU devices
+                    cl_uint numDevices;
+                    clGetDeviceIDs(platform, CL_DEVICE_TYPE_GPU, 0, NULL, &numDevices); // Assuming you are interested in GPU devices
 
-                if(args.deviceIndex >= numDevices) {
-                    // Handle error: Invalid device index
-                }
+                    if(args.deviceIndex >= numDevices) {
+                        // Handle error: Invalid device index
+                    }
 
-                cl_device_id* devices = new cl_device_id[numDevices];
-                clGetDeviceIDs(platform, CL_DEVICE_TYPE_GPU, numDevices, devices, NULL);
+                    cl_device_id* devices = new cl_device_id[numDevices];
+                    clGetDeviceIDs(platform, CL_DEVICE_TYPE_GPU, numDevices, devices, NULL);
 
-                cl_device_id device = devices[args.deviceIndex]; // Get device by index
+                    cl_device_id device = devices[args.deviceIndex]; // Get device by index
 
-                cl_ulong memorySize;
-                clGetDeviceInfo(device, CL_DEVICE_GLOBAL_MEM_SIZE, sizeof(cl_ulong), &memorySize, NULL);
-                batchSize = memorySize / mcost / 1.01 / 1024;
+                    cl_ulong memorySize;
+                    clGetDeviceInfo(device, CL_DEVICE_GLOBAL_MEM_SIZE, sizeof(cl_ulong), &memorySize, NULL);
+                    batchSize = memorySize / mcost / 1.01 / 1024;
+                #else
+                    std::cerr << "XenGPUMiner is not built with Opencl" << std::endl;
+                #endif
             } else if (args.mode == "cuda") {
-                #if HAVE_CUDA
+                #ifdef HAVE_CUDA
                     cudaSetDevice(args.deviceIndex); // Set device by index
                     size_t freeMemory, totalMemory;
                     cudaMemGetInfo(&freeMemory, &totalMemory);
 
                     batchSize = freeMemory / 1.01 / mcost / 1024;
+                #else
+                    std::cerr << "XenGPUMiner is not built with CUDA" << std::endl;
                 #endif
-
             }
             printf("using batchsize:%d\n", batchSize);
         }
@@ -219,11 +236,19 @@ int main(int, const char * const *argv)
                 false, args.precomputeRefs, 20000000,
                 args.outputMode, args.outputType);
         if (args.mode == "opencl") {
-            OpenCLExecutive exec(args.deviceIndex, args.listDevices);
-            exec.runBenchmark(director);
+            #ifdef HAVE_OPENCL
+                OpenCLExecutive exec(args.deviceIndex, args.listDevices);
+                exec.runBenchmark(director);
+            #else
+                std::cerr << "XenGPUMiner is not built with Opencl" << std::endl;
+            #endif
         } else if (args.mode == "cuda") {
-            CudaExecutive exec(args.deviceIndex, args.listDevices);
-            exec.runBenchmark(director);
+            #ifdef HAVE_CUDA
+                CudaExecutive exec(args.deviceIndex, args.listDevices);
+                exec.runBenchmark(director);
+            #else
+                std::cerr << "XenGPUMiner is not built with CUDA" << std::endl;
+            #endif
         }
     }
     return 0;
