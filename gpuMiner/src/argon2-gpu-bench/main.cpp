@@ -162,6 +162,13 @@ int main(int, const char * const *argv)
         }
         return 0;
     }
+    if(args.mode == "cuda"){
+        #if HAVE_CUDA
+        #else
+            printf("Have no CUDA!\n");
+            return -1;
+        #endif
+    }
     if(args.benchmark){
         // difficulty from 50 to 1000000 step 100
         int min_difficulty = 100;
@@ -309,6 +316,8 @@ int main(int, const char * const *argv)
                     batchSize = freeMemory / 1.01 / mcost / 1024;
                 #endif
 
+            } else{
+                batchSize = 100;
             }
             printf("using batchsize:%d\n", batchSize);
         }
@@ -322,6 +331,9 @@ int main(int, const char * const *argv)
             exec.runBenchmark(director);
         } else if (args.mode == "cuda") {
             CudaExecutive exec(args.deviceIndex, args.listDevices);
+            exec.runBenchmark(director);
+        }else{
+            CpuExecutive exec(args.deviceIndex, args.listDevices);
             exec.runBenchmark(director);
         }
     }

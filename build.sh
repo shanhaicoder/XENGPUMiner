@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Save the current working directory
+original_dir=$(pwd)
+
 # Default values
 COMPUTE_TYPE="CUDA"
 
@@ -24,15 +27,17 @@ if [ -z "$CUDA_ARCH" ]; then
     cmake ..
 
     make
-
-    # Output a message indicating the script has completed successfully
-    echo "Build completed successfully"
 else
     cmake -DCUDA_ARCH=$CUDA_ARCH ..
     # Compile the project
     make
+fi
 
-    # Output a message indicating the script has completed successfully
-    echo "Build completed successfully with CUDA_ARCH=${CUDA_ARCH}"
+# Return to the original working directory
+cd "$original_dir" || exit
 
+if [ -e miner.sh ]; then
+    chmod +x miner.sh
+else
+    echo "miner.sh does not exist."
 fi

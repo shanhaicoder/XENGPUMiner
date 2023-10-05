@@ -5,6 +5,15 @@ from random import choice, randrange
 import argparse
 import configparser
 
+import signal
+import sys
+
+def signal_handler(sig, frame):
+    global running
+    print("Received Ctrl+C. Cleaning up...")
+    running = False
+
+signal.signal(signal.SIGINT, signal_handler)
 
 # Set up argument parser
 parser = argparse.ArgumentParser(description="Process optional account and worker arguments.")
@@ -143,15 +152,21 @@ class Block:
 updated_memory_cost = 1500 # just initialize it
 
 def write_difficulty_to_file(difficulty, filename='difficulty.txt'):
-    with open(filename, 'w') as file:
-        file.write(difficulty)
+    try:
+        with open(filename, 'w') as file:
+            file.write(difficulty)
+    except Exception as e:
+        print(f"An error occurred while writing difficulty to file: {e}")
 
 def update_memory_cost_periodically():
     global memory_cost
     global updated_memory_cost
     global gpu_mode
+    global running
     time.sleep(2)
     while True:
+        if(not running):
+            break
         updated_memory_cost = fetch_difficulty_from_server()
         if updated_memory_cost != memory_cost:
             if gpu_mode:
@@ -164,7 +179,7 @@ def update_memory_cost_periodically():
 def fetch_difficulty_from_server():
     global memory_cost
     try:
-        response = requests.get('http://xenminer.mooo.com/difficulty')
+        response = requests.get('http://xenminer.mooo.com/difficulty', timeout=10)
         response_data = response.json()
         return str(response_data['difficulty'])
     except Exception as e:
@@ -234,14 +249,19 @@ def submit_pow(account_address, key, hash_to_verify):
             }
 
             # Send POST request
-            pow_response = requests.post('http://xenminer.mooo.com:4446/send_pow', json=payload)
+            try:
+                pow_response = requests.post('http://xenminer.mooo.com:4446/send_pow', json=payload)
 
-            if pow_response.status_code == 200:
-                print(f"Proof of Work successful: {pow_response.json()}")
-            else:
-                print(f"Proof of Work failed: {pow_response.json()}")
+                if pow_response.status_code == 200:
+                    print(f"Proof of Work successful: {pow_response.json()}")
+                else:
+                    print(f"Proof of Work failed: {pow_response.json()}")
 
-            print(f"Block ID: {output_block_id}, Merkle Root: {merkle_root}")
+                print(f"Block ID: {output_block_id}, Merkle Root: {merkle_root}")
+            except requests.exceptions.RequestException as e:
+                # Handle any exceptions that occur during the request
+                print(f"An error occurred: {e}")
+                return None
 
     else:
         print("Failed to fetch the last block.")
@@ -322,31 +342,31 @@ def mine_block(stored_targets, prev_hash):
     retries = 0
 
     while retries <= max_retries:
-        # Make the POST request
-        response = requests.post('http://xenminer.mooo.com/verify', json=payload)
-
-        # Print the HTTP status code
-        print("HTTP Status Code:", response.status_code)
-
-        if target == "XEN11" and found_valid_hash and response.status_code == 200:
-            #submit proof of work validation of last sealed block
-            submit_pow(account, random_data, hashed_data)
-
-        if response.status_code != 500:  # If status code is not 500, break the loop
-            print("Server Response:", response.json())
-            break
-        
-        retries += 1
-        print(f"Retrying... ({retries}/{max_retries})")
-        time.sleep(5)  # You can adjust the sleep time
-
-
-        # Print the server's response
         try:
+            # Make the POST request
+            response = requests.post('http://xenminer.mooo.com/verify', json=payload)
+
+            # Print the HTTP status code
+            print("HTTP Status Code:", response.status_code)
+            # Print the server's response
             print("Server Response:", response.json())
+
+            if target == "XEN11" and found_valid_hash and response.status_code == 200:
+                #submit proof of work validation of last sealed block
+                submit_pow(account, random_data, hashed_data)
+                break
+            if response.status_code != 500:  # If status code is not 500, break the loop
+                print("Server Response:", response.json())
+                break
+            
+            retries += 1
+            print(f"Retrying... ({retries}/{max_retries})")
+            time.sleep(5)  # You can adjust the sleep time
         except Exception as e:
             print("An error occurred:", e)
-
+    if(retries > max_retries):
+        print(f"Failed to submit block after {retries} retries")
+        return None
     return random_data, hashed_data, attempts, hashes_per_second
 
 normal_blocks_count = 0
@@ -407,65 +427,119 @@ def submit_block(key):
 
         print (payload)
 
-        max_retries = 2
+        max_retries = 5
         retries = 0
 
         while retries <= max_retries:
-            # Make the POST request
-            response = requests.post('http://xenminer.mooo.com/verify', json=payload)
-
-            # Print the HTTP status code
-            print("HTTP Status Code:", response.status_code)
-
-            if found_valid_hash and response.status_code == 200:
-                if "XUNI" in hashed_data:
-                    xuni_blocks_count += 1
-                    break
-                elif "XEN11" in hashed_data:
-                    capital_count = sum(1 for char in re.sub('[0-9]', '', hashed_data) if char.isupper())
-                    if capital_count >= 65:
-                        super_blocks_count += 1
-                    else:
-                        normal_blocks_count += 1
-
-            if target == "XEN11" and found_valid_hash and response.status_code == 200:
-                #submit proof of work validation of last sealed block
-                submit_pow(submitaccount, key, hashed_data)
-
-            if response.status_code != 500:  # If status code is not 500, break the loop
-                print("Server Response:", response.json())
-                break
-            
-            retries += 1
-            print(f"Retrying... ({retries}/{max_retries})")
-            time.sleep(5)  # You can adjust the sleep time
-
-
-            # Print the server's response
             try:
+                # Make the POST request
+                response = requests.post('http://xenminer.mooo.com/verify', json=payload)
+
+                # Print the HTTP status code
+                print("HTTP Status Code:", response.status_code)
+                # Print the server's response
                 print("Server Response:", response.json())
+                if found_valid_hash and response.status_code == 200:
+                    if "XUNI" in hashed_data:
+                        xuni_blocks_count += 1
+                        break
+                    elif "XEN11" in hashed_data:
+                        capital_count = sum(1 for char in re.sub('[0-9]', '', hashed_data) if char.isupper())
+                        if capital_count >= 65:
+                            super_blocks_count += 1
+                        else:
+                            normal_blocks_count += 1
+                if target == "XEN11" and found_valid_hash and response.status_code == 200:
+                    #submit proof of work validation of last sealed block
+                    submit_pow(submitaccount, key, hashed_data)
+                    break
+                if response.status_code != 500:  # If status code is not 500, break the loop
+                    print("Server Response:", response.json())
+                    return None
+
+                retries += 1
+                print(f"Retrying... ({retries}/{max_retries})")
+                time.sleep(3)  # You can adjust the sleep time
             except Exception as e:
                 print("An error occurred:", e)
+        if(retries > max_retries):
+            print(f"Failed to submit block after {retries} retries")
+            return None
+        return key, hashed_data
+    return None
 
-    return key, hashed_data
+
+gpu_hash_rate_dir = "hash_rates"
+EXPIRATION_TIME = 120
+def clear_existing_files():
+    for filename in os.listdir(gpu_hash_rate_dir):
+        filepath = os.path.join(gpu_hash_rate_dir, filename)
+        try:
+            os.remove(filepath)
+        except Exception as e:
+            # Print an error message if a file can't be removed.
+            print(f"Error removing file {filepath}: {e}")
+
+def get_all_hash_rates():
+    total_hash_rate = 0
+    active_processes = 0
+    current_time = time.time()
+    for filename in os.listdir(gpu_hash_rate_dir):
+        filepath = os.path.join(gpu_hash_rate_dir, filename)
+        try:
+            # If a file is older than EXPIRATION_TIME, remove it.
+            if current_time - os.path.getmtime(filepath) > EXPIRATION_TIME:
+                os.remove(filepath)
+                continue
+            
+            # Read the hash rate from the file and add it to the total rate.
+            with open(filepath, "r") as f:
+                hash_rate = float(f.read().strip())
+                total_hash_rate += hash_rate
+            
+            active_processes += 1
+        except (ValueError, IOError) as e:
+            # Ignore files with invalid content or that can't be read.
+            pass
+    return total_hash_rate, active_processes
+
+total_hash_rate = 0
+active_processes = 0
+def monitor_hash_rate():
+    if not os.path.exists(gpu_hash_rate_dir):
+        os.makedirs(gpu_hash_rate_dir)
+    clear_existing_files()
+    global total_hash_rate
+    global active_processes
+    global running
+
+    while True:
+        if(not running):
+            break
+        total_hash_rate, active_processes = get_all_hash_rates()
+        time.sleep(1)
 
 def monitor_blocks_directory():
     global normal_blocks_count
     global super_blocks_count
     global xuni_blocks_count
     global memory_cost
+    global running
+
     with tqdm(total=None, dynamic_ncols=True, desc=f"{GREEN}Mining{RESET}", unit=f" {GREEN}Blocks{RESET}") as pbar:
         pbar.update(0)
         while True:
-            XENDIR = f"gpu_found_blocks_tmp/"
-            if not os.path.exists(XENDIR):
-                os.makedirs(XENDIR)
-            for filename in os.listdir(XENDIR):
-                filepath = os.path.join(XENDIR, filename)
+            if(not running):
+                break
+            BlockDir = f"gpu_found_blocks_tmp/"
+            if not os.path.exists(BlockDir):
+                os.makedirs(BlockDir)
+            for filename in os.listdir(BlockDir):
+                filepath = os.path.join(BlockDir, filename)
                 with open(filepath, 'r') as f:
                     data = f.read()
-                submit_block(data)
-                pbar.update(1)
+                if(submit_block(data) is not None):
+                    pbar.update(1)
                 os.remove(filepath)
             superblock = f"{RED}super:{super_blocks_count}{RESET} "
             block = f"{GREEN}normal:{normal_blocks_count}{RESET} "
@@ -477,34 +551,52 @@ def monitor_blocks_directory():
             if(xuni_blocks_count == 0):
                 xuni = ""
             if super_blocks_count == 0 and normal_blocks_count == 0 and xuni_blocks_count == 0:
-                pbar.set_postfix({"Details": f"Waiting for blocks..."}, refresh=True)
+                pbar.set_postfix({"Stat":f"Active:{BLUE}{active_processes}{RESET}, HashRate:{BLUE}{total_hash_rate:.2f}{RESET}h/s", 
+                                  "Difficulty":f"{YELLOW}{memory_cost}{RESET}"}, refresh=True)
             else:
-                pbar.set_postfix({"Details": f"{superblock}{block}{xuni}"}, refresh=True)
+                pbar.set_postfix({"Details": f"{superblock}{block}{xuni}", 
+                                  "Stat":f"Active:{BLUE}{active_processes}{RESET}, HashRate:{BLUE}{total_hash_rate:.2f}{RESET}h/s", 
+                                  "Difficulty":f"{YELLOW}{memory_cost}{RESET}"}, refresh=True)
 
-            time.sleep(1)  # Check every 1 seconds
+            time.sleep(1)
 
 
 if __name__ == "__main__":
     blockchain = []
     stored_targets = ['XEN11', 'XUNI']
     num_blocks_to_mine = 20000000
+    global running
+    running = True
+    updated_memory_cost = fetch_difficulty_from_server()
+    if updated_memory_cost != memory_cost:
+        if gpu_mode:
+            memory_cost = updated_memory_cost
+            write_difficulty_to_file(updated_memory_cost)
+        print(f"Updating difficulty to {updated_memory_cost}")
     
     #Start difficulty monitoring thread
     difficulty_thread = threading.Thread(target=update_memory_cost_periodically)
     difficulty_thread.daemon = True  # This makes the thread exit when the main program exits
     difficulty_thread.start()
 
+    hashrate_thread = threading.Thread(target=monitor_hash_rate)
+    hashrate_thread.daemon = True  # This makes the thread exit when the main program exits
+    hashrate_thread.start()
+
     genesis_block = Block(0, "0", "Genesis Block", "0", "0", "0")
     blockchain.append(genesis_block.to_dict())
-    print(f"Mining with: {account}")
+    print(f"Mining with: {RED}{account}{RESET}")
     if(gpu_mode):
         print(f"Using GPU mode")
         submit_thread = threading.Thread(target=monitor_blocks_directory)
         submit_thread.daemon = True  # This makes the thread exit when the main program exits
         submit_thread.start()
+
         try:
             while True:  # Loop forever
-                time.sleep(10)  # Sleep for 10 seconds
+                if(not running):
+                    break
+                time.sleep(2)  # Sleep for 2 seconds
         except KeyboardInterrupt:
             print("Main thread is finished")
     else:
@@ -513,7 +605,8 @@ if __name__ == "__main__":
         while i <= num_blocks_to_mine:
             print(f"Mining block {i}...")
             result = mine_block(stored_targets, blockchain[-1]['hash'])
-
+            if not running:
+                break
             if result is None:
                 print(f"{RED}Restarting mining round{RESET}")
                 # Skip the increment of `i` and continue the loop
