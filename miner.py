@@ -192,8 +192,8 @@ def fetch_difficulty_from_server():
         response_data = response.json()
         return str(response_data['difficulty'])
     except Exception as e:
-        if debug_output:
-            print(f"An error occurred while fetching difficulty: {e}")
+        # if debug_output:
+            # print(f"An error occurred while fetching difficulty: {e}")
         return memory_cost  # Return last value if fetching fails
 
 def generate_random_sha256(max_length=128):
